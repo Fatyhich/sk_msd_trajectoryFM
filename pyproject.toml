@@ -130,6 +130,7 @@ dependencies = [
     "torchvision==0.13.1+cu113",
     "torchviz==0.0.2",
     "tqdm==4.66.4",
+    "trajdata>=1.3.2",
     "trampoline==0.1.2",
     "tzdata==2024.1",
     "umap-learn==0.5.6",
@@ -148,4 +149,9 @@ default = true
 [[tool.uv.index]]
 name = "pytorch-cu113"
 url = "https://download.pytorch.org/whl/cu113"
-default = false
+explicit = true   # <-- ВАЖНО
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu113" }
+torchvision = { index = "pytorch-cu113" }
+torchaudio = { index = "pytorch-cu113" }
