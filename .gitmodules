@@ -1,0 +1,3 @@
+[submodule "TrajectoryFlowMatching"]
+	path = TrajectoryFlowMatching
+	url = git@github.com:nZhangx/TrajectoryFlowMatching.git
