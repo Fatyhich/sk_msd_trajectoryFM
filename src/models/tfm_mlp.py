@@ -16,10 +16,10 @@ from utils.visualize import *
 from utils.metric_calc import *
 from utils.sde import SDE
 
-from models.positional_encoding import *
-from models.mlp import * 
-from models.sde_func_solver import *
-from models.grad_util import *
+from models.components.positional_encoding import *
+from models.components.mlp import * 
+from models.components.sde_func_solver import *
+from models.components.grad_util import *
 
 
 class MLP_conditional_memory(torch.nn.Module):
