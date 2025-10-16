@@ -16,8 +16,8 @@ from utils.visualize import *
 from utils.metric_calc import *
 from utils.sde import SDE
 
-from models.positional_encoding import *
-from models.grad_util import torch_wrapper_tv
+from models.components.positional_encoding import *
+from models.components.grad_util import torch_wrapper_tv
 from utils.loss import mse_loss
 
 
