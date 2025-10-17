@@ -4,7 +4,7 @@ model_module:
   time_varying: true
   conditional: true
   treatment_cond: 0
-  memory: 3
+  memory: 4
   dim: 2
   w: 256
   clip: 1e-2

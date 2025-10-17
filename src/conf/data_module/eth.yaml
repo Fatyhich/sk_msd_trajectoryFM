@@ -1,4 +1,7 @@
+# src/conf/data_module/eth.yaml
 _target_: src.data.datamodule.TrajDataModule
+train_consecutive: true
+
 root: ${hydra:runtime.cwd}/data/eth
 desired_dt: 0.1
 state_format: x,y
@@ -8,9 +11,15 @@ history_sec: [0.8, 0.8]
 future_sec: [0.8, 0.8]
 standardize: false
 
-batch_size: 64
+batch_size: 256
 shuffle: true
-num_workers: 0
+num_workers: 16
 
 memory: 4
 dim: 2
+
+split_method: scene   # "scene" или "sample"
+train_ratio: 0.8
+val_ratio: 0.1
+test_ratio: 0.1
+split_seed: 0xDEADBEEF

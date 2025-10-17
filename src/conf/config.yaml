@@ -1,10 +1,11 @@
 defaults:
   - data_module: eth
-  - model_module: tfm_mlp
-  - trainer: trainer
+  - model: tfm_mlp
+  - trainer: default
   - clearml: default
+  - _self_
 
-seed: 1234
+seed: 0xDEADBEEF
 skip_training: false
 
 hydra:
