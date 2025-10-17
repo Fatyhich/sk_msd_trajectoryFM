@@ -10,16 +10,17 @@ from torchdyn.core import NeuralODE
 import pytorch_lightning as pl
 from torch import optim
 import torch.functional as F
-import wandb
+from clearml import Logger as ClearMLLogger
+ClearMLLogger = None
 
-from utils.visualize import *
-from utils.metric_calc import *
-from utils.sde import SDE
+from src.utils.visualize import *
+from src.utils.metric_calc import *
+from src.utils.sde import SDE
 
-from models.components.positional_encoding import *
-from models.components.mlp import * 
-from models.components.sde_func_solver import *
-from models.components.grad_util import *
+from src.models.components.positional_encoding import *
+from src.models.components.mlp import * 
+from src.models.components.sde_func_solver import *
+from src.models.components.grad_util import *
 
 
 class MLP_conditional_memory(torch.nn.Module):
@@ -199,14 +200,6 @@ class Noise_MLP_Cond_Memory_Module(pl.LightningModule):
         in_tensor = torch.cat([x,x0_class, t_model], dim = -1)
         xt = self.flow_model.forward_train(in_tensor)
 
-        # if self.implementation == "SDE":
-        #     sde_noise = self.noise_model.forward_train(in_tensor)
-        #     variance = torch.sqrt(t*(1-t))*sde_noise
-        #     noise = torch.randn_like(xt[:,:self.dim]) * variance
-        #     loss = self.loss_fn(xt[:,:self.dim] + noise.clone().detach(), x1) + self.loss_fn(xt[:,-1], futuretime)
-        #     uncertainty =(xt[:,:self.dim].clone().detach() + noise)
-        #     noise_loss = self.loss_fn(uncertainty,x1)
-        # else:
         loss = self.loss_fn(xt[:,:self.dim], x1) + self.loss_fn(xt[:,-1], futuretime)
         uncertainty = torch.abs(xt[:,:self.dim].clone().detach() - x1)
             # noise model incorporation (model loss)
@@ -266,16 +259,47 @@ class Noise_MLP_Cond_Memory_Module(pl.LightningModule):
         noise_pairs = []
 
         x0_values, x0_classes, x1_values, times_x0, times_x1 = batch
+
+        x0_values = x0_values.squeeze(0)
+        x1_values = x1_values.squeeze(0)
         times_x0 = times_x0.squeeze()
         times_x1 = times_x1.squeeze()
+        x0_classes = x0_classes.squeeze()
 
-        # print(x0_values.shape)
-        # print(x1_values.shape)
-        full_traj = torch.cat([x0_values[0,0,:self.dim].unsqueeze(0), 
-                               x1_values[0,:,:self.dim]], 
-                               dim=0)
-        full_time = torch.cat([times_x0[0].unsqueeze(0), times_x1], dim=0)
+        if len(x0_classes.shape) == 1:
+            x0_classes = x0_classes.unsqueeze(1)
+
+        # Сначала получаем предсказанную траекторию
         ind_loss, pred_traj, noise_mse, noise_pred = self.test_trajectory(batch)
+
+        # Создаем ground truth траекторию с тем же количеством точек, что и pred_traj
+        # Используем интерполяцию для приведения к одинаковому размеру
+        import torch.nn.functional as F
+        
+        # Создаем полную ground truth траекторию
+        full_gt_traj = torch.cat([x0_values[:,:self.dim], x1_values[:,:self.dim]], dim=0)
+        
+        # Интерполируем ground truth к размеру pred_traj
+        if len(full_gt_traj) != len(pred_traj):
+            # Создаем индексы для интерполяции
+            old_indices = torch.linspace(0, len(full_gt_traj)-1, len(full_gt_traj))
+            new_indices = torch.linspace(0, len(full_gt_traj)-1, len(pred_traj))
+            
+            # Интерполируем каждую координату отдельно
+            full_traj = torch.zeros_like(pred_traj)
+            for i in range(self.dim):
+                full_traj[:, i] = F.interpolate(
+                    full_gt_traj[:, i].unsqueeze(0).unsqueeze(0), 
+                    size=len(pred_traj), 
+                    mode='linear', 
+                    align_corners=True
+                ).squeeze()
+        else:
+            full_traj = full_gt_traj
+
+        # Создаем временную последовательность
+        full_time = torch.linspace(times_x0[0], times_x1[-1], len(pred_traj))
+
         total_loss.append(ind_loss)
         traj_pairs.append([full_traj, pred_traj])
         noise_pairs.append([full_traj, noise_pred])
@@ -287,19 +311,59 @@ class Noise_MLP_Cond_Memory_Module(pl.LightningModule):
 
         # graph
         fig = plot_3d_path_ind_noise(pred_traj, 
-                               full_traj,
+                            full_traj,
                                 noise_pred, 
-                               t_span=full_time,
-                               title="{}_trajectory_patient_{}".format(mode, batch_idx))
-        if self.logger:
-            # may cause problem if wandb disabled
-            self.logger.experiment.log({"{}_trajectory_patient_{}".format(mode, batch_idx): wandb.Image(fig)})
+                            t_span=full_time,
+                            title="{}_trajectory_patient_{}".format(mode, batch_idx))
+        
+        self._log_figure(fig, title="{}_trajectory_patient_{}".format(mode, batch_idx))
         
         plt.close(fig)
 
         # metrics
         metricD = metrics_calculation(pred_traj, full_traj, metrics=self.metrics)
         return np.mean(total_loss), traj_pairs, metricD, np.mean(total_noise_loss), noise_pairs
+    
+    def _log_figure(self, fig, title: str, step: int | None = None):
+        # 1) ClearML: если Task активен, текущий логгер доступен глобально
+        if ClearMLLogger is not None:
+            try:
+                ClearMLLogger.current_logger().report_matplotlib_figure(
+                    title=title,
+                    series=title,
+                    figure=fig,
+                    iteration=step,
+                    report_image=True,
+                )
+                return
+            except Exception:
+                pass
+        # 2) Lightning logger (TensorBoard и пр.)
+        if getattr(self, "logger", None) is not None:
+            exp = getattr(self.logger, "experiment", None)
+            # TensorBoard SummaryWriter
+            if hasattr(exp, "add_figure"):
+                try:
+                    exp.add_figure(title, fig, global_step=step)
+                    return
+                except Exception:
+                    pass
+            # Generic `.log` с поддержкой изображений у кастомных логгеров
+            if hasattr(exp, "log"):
+                try:
+                    exp.log({title: fig})
+                    return
+                except Exception:
+                    pass
+        # 3) Фолбэк: сохранить локально
+        try:
+            import os
+            out_dir = getattr(self.logger, "save_dir", None) if getattr(self, "logger", None) else os.getcwd()
+            os.makedirs(out_dir, exist_ok=True)
+            fig_path = os.path.join(out_dir, f"{title}.png")
+            fig.savefig(fig_path, dpi=150, bbox_inches="tight")
+        except Exception:
+            pass
 
     def test_trajectory(self,pt_tensor):
         if self.implementation == "ODE":
@@ -347,7 +411,7 @@ class Noise_MLP_Cond_Memory_Module(pl.LightningModule):
         time_history = x0_classes[0][-(self.memory*self.dim):]
 
         for i in range(len_path): 
-            time_span = self.__convert_tensor__(torch.linspace(times_x0[i], times_x1[i], 10)).to(x0_values.device)
+            time_span = self.__convert_tensor__(torch.linspace(times_x0[i], times_x1[i], 6)).to(x0_values.device)
 
             new_x_classes = torch.cat([x0_classes[i][:-(self.memory*self.dim)].unsqueeze(0), time_history.unsqueeze(0)], dim=1)
             with torch.no_grad():

@@ -12,13 +12,13 @@ from torch import optim
 import torch.functional as F
 import wandb
 
-from utils.visualize import *
-from utils.metric_calc import *
-from utils.sde import SDE
+from src.utils.visualize import *
+from src.utils.metric_calc import *
+from src.utils.sde import SDE
 
-from models.components.positional_encoding import *
-from models.components.grad_util import torch_wrapper_tv
-from utils.loss import mse_loss
+from src.models.components.positional_encoding import *
+from src.models.components.grad_util import torch_wrapper_tv
+from src.utils.loss import mse_loss
 
 
 class MLP(torch.nn.Module):
