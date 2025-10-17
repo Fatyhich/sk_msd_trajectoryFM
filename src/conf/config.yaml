@@ -1,0 +1,14 @@
+defaults:
+  - data_module: eth
+  - model_module: tfm_mlp
+  - trainer: trainer
+  - clearml: default
+
+seed: 1234
+skip_training: false
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: true

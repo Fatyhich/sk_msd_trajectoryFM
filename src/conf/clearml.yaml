@@ -1,0 +1,4 @@
+enable: true
+project: "TrajectoryFM-ETH"
+task_name: "tfm_mlp_${now:%Y%m%d_%H%M%S}"
+tags: ["eth", "tfm_mlp"]

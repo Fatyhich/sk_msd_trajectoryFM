@@ -1,0 +1,16 @@
+_target_: src.data.datamodule.TrajDataModule
+root: ${hydra:runtime.cwd}/data/eth
+desired_dt: 0.1
+state_format: x,y
+obs_format: x,y
+centric: scene
+history_sec: [0.8, 0.8]
+future_sec: [0.8, 0.8]
+standardize: false
+
+batch_size: 64
+shuffle: true
+num_workers: 0
+
+memory: 4
+dim: 2
