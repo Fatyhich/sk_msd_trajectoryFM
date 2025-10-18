@@ -28,7 +28,7 @@ class TrajDataModule(pl.LightningDataModule):
         train_consecutive: bool = True,
         batch_size: int = 64,
         shuffle: bool = True,
-        num_workers: int = 0,
+        num_workers: int = None,
         memory: int = 4,
         dim: int = 2,
         # --- split options ---
