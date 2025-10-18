@@ -21,6 +21,7 @@ from src.models.components.positional_encoding import *
 from src.models.components.mlp import * 
 from src.models.components.sde_func_solver import *
 from src.models.components.grad_util import *
+from src.models.components.plotter import create_2d_trajectory_plot
 
 
 class MLP_conditional_memory(torch.nn.Module):
@@ -50,13 +51,31 @@ class MLP_conditional_memory(torch.nn.Module):
         self.indim = dim + (time_dim if time_varying else 0) + (self.treatment_cond if conditional else 0) + (dim * memory)
         self.net = torch.nn.Sequential(
             torch.nn.Linear(self.indim, w),
-            torch.nn.SELU(),
+            torch.nn.LayerNorm(w),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.1),
+            
             torch.nn.Linear(w, w),
-            torch.nn.SELU(),
+            torch.nn.LayerNorm(w),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.1),
+            
             torch.nn.Linear(w, w),
-            torch.nn.SELU(),
-            torch.nn.Linear(w,self.out_dim),
+            torch.nn.LayerNorm(w),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.1),
+            
+            torch.nn.Linear(w, self.out_dim),
         )
+        # self.net = torch.nn.Sequential(
+        #     torch.nn.Linear(self.indim, w),
+        #     torch.nn.SELU(),
+        #     torch.nn.Linear(w, w),
+        #     torch.nn.SELU(),
+        #     torch.nn.Linear(w, w),
+        #     torch.nn.SELU(),
+        #     torch.nn.Linear(w,self.out_dim),
+        # )
         self.default_class = 0
         self.clip = clip
         # self.encoding_function = positional_encoding_tensor()
@@ -310,11 +329,13 @@ class Noise_MLP_Cond_Memory_Module(pl.LightningModule):
         full_time = full_time.detach().cpu().numpy()
 
         # graph
-        fig = plot_3d_path_ind_noise(pred_traj, 
-                            full_traj,
-                                noise_pred, 
-                            t_span=full_time,
-                            title="{}_trajectory_patient_{}".format(mode, batch_idx))
+        fig = create_2d_trajectory_plot(
+            pred_traj,
+            full_traj,
+            noise_pred,
+            full_time,
+            title="{}_trajectory_patient_{}".format(mode, batch_idx)
+        )
         
         self._log_figure(fig, title="{}_trajectory_patient_{}".format(mode, batch_idx))
         
@@ -368,8 +389,6 @@ class Noise_MLP_Cond_Memory_Module(pl.LightningModule):
     def test_trajectory(self,pt_tensor):
         if self.implementation == "ODE":
             return self.test_trajectory_ode(pt_tensor)
-        elif self.implementation == "SDE":
-            return self.test_trajectory_sde(pt_tensor)
     
     def test_trajectory_ode(self,pt_tensor):
         """test_trajectory
@@ -451,97 +470,6 @@ class Noise_MLP_Cond_Memory_Module(pl.LightningModule):
         total_pred_tensor = torch.stack(total_pred).squeeze(1)
         noise_pred = torch.stack(noise_pred).squeeze(1)
         return mse_all, total_pred_tensor, noise_mse, noise_pred
-
-    
-    def test_trajectory_sde(self,pt_tensor):
-        """test_trajectory
-
-        Args:
-            pt_tensor (numpy.array): (x0_values, x0_classes, x1_values, times_x0, times_x1),
-
-
-        Returns:
-            mse_all, total_pred_tensor: _description_
-        """
-        sde = SDE_func_solver(self.flow_model, noise=self.noise_model)
-        total_pred = []
-        mse = []
-        noise_pred = []
-        noise_mse = []
-        t_max = 0
-
-        x0_values, x0_classes, x1_values, times_x0, times_x1 = pt_tensor
-        # squeeze all
-        x0_values = x0_values.squeeze(0)
-        x1_values = x1_values.squeeze(0)
-        times_x0 = times_x0.squeeze()
-        times_x1 = times_x1.squeeze()
-        x0_classes = x0_classes.squeeze()
-
-        if len(x0_classes.shape) == 1:
-            x0_classes = x0_classes.unsqueeze(1)
-
-
-
-        total_pred.append(x0_values[0].unsqueeze(0))
-        len_path = x0_values.shape[0]
-        assert len_path == x1_values.shape[0]
-
-        time_history = x0_classes[0][-(self.memory*self.dim):]
-
-        for i in range(len_path): 
-
-            time_span = self.__convert_tensor__(torch.linspace(times_x0[i], times_x1[i], 10)).to(x0_values.device)
-
-            new_x_classes = torch.cat([x0_classes[i][:-(self.memory*self.dim)].unsqueeze(0), time_history.unsqueeze(0)], dim=1)
-            with torch.no_grad():
-                # get last pred, if none then use startpt
-                if i == 0:
-                    testpt = torch.cat([x0_values[i].unsqueeze(0),new_x_classes],dim=1)
-                else: # incorporate last prediction
-                    testpt = torch.cat([pred_traj, new_x_classes], dim=1)
-                traj, noise_traj = self._sde_solver(sde, testpt, time_span)
-
-            pred_traj = traj[-1,:,:self.dim]
-            noise_traj = noise_traj[-1,:,:self.dim]
-
-            total_pred.append(pred_traj)
-            noise_pred.append(noise_traj)
-
-            ground_truth_coords = x1_values[i]
-            calculated_mse = self.loss_fn(pred_traj, ground_truth_coords).detach().cpu().numpy()
-            mse.append(calculated_mse)
-            noise_mse.append(calculated_mse)
-
-            # history update
-            flattened_coords = pred_traj.flatten()
-            time_history = torch.cat([time_history[self.dim:].unsqueeze(0), flattened_coords.unsqueeze(0)], dim=1).squeeze()
-            
-            
-
-        mse_all = np.mean(mse)
-        noise_mse_all = np.mean(noise_mse)
-        total_pred_tensor = torch.stack(total_pred).squeeze(1)
-        noise_pred_tensor = torch.stack(noise_pred).squeeze(1)
-        return mse_all, total_pred_tensor, noise_mse_all, noise_pred_tensor
-
-
-    def _sde_solver(self, sde, initial_state, time_span):
-        dt = time_span[1] - time_span[0]  # Time step
-        current_state = initial_state
-        trajectory = [current_state]
-        noise_trajectory = []
-
-        for t in time_span[1:]:
-            drift = sde.f(t, current_state)
-            diffusion = sde.g(t, current_state)
-            noise = torch.randn_like(current_state) * torch.sqrt(dt)
-            current_state = current_state + drift * dt + diffusion * noise # @NEED this or not?
-            trajectory.append(current_state)
-            pred_diff = diffusion * noise
-            noise_trajectory.append(pred_diff)
-
-        return torch.stack(trajectory), torch.stack(noise_trajectory)
         
 
 
