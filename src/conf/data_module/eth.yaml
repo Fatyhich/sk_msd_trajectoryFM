@@ -11,7 +11,7 @@ history_sec: [0.8, 0.8]
 future_sec: [0.8, 0.8]
 standardize: false
 
-batch_size: 256
+batch_size: 512
 shuffle: true
 num_workers: 16
 

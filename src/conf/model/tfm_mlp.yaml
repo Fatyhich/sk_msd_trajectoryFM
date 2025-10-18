@@ -7,10 +7,10 @@ model_module:
   memory: 4
   dim: 2
   w: 256
-  clip: 1e-2
-  sigma: 0.1
+  lr: 1e-3
+  clip: 0.1
+  sigma: 0.05
   metrics:
-    - variance_dist
     - mse_loss
     - l1_loss
     
